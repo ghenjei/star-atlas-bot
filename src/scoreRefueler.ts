@@ -143,12 +143,11 @@ class ResourceCounter {
   }
 }
 
-async function buyFromMarketplace(
+async function quoteFromMarketplace(
   context: Context,
   gm: GmClientService,
   asset: Sft,
-  amount: number,
-  atlasAccount: PublicKey
+  amount: number
 ) {
   const openOrders =
     (await gm.getOpenOrdersForAsset(context.connection, asset.address, MARKETPLACE_PROGRAM))
@@ -158,15 +157,34 @@ async function buyFromMarketplace(
       .sort((a, b) => a.uiPrice - b.uiPrice);
 
   if (openOrders.length === 0)
-    return 0;
+    return undefined;
   const order = openOrders[0];
   const totalPrice = order.priceForQuantity(amount);
 
+  return { order, totalPrice };
+}
+
+async function getAtlasTokensBalance(context: Context, atlasAccount: PublicKey) {
+  return (await context.connection.getTokenAccountBalance(atlasAccount)).value.uiAmount ?? 0;
+}
+
+async function buyFromMarketplace(
+  context: Context,
+  gm: GmClientService,
+  asset: Sft,
+  amount: number,
+  atlasAccount: PublicKey
+) {
+  const quote = await quoteFromMarketplace(context, gm, asset, amount);
+  if (quote === undefined)
+    return 0;
+
+  const { order, totalPrice } = quote;
   console.log("Purchasing ", amount, asset.symbol, " for ", totalPrice, " ATLAS");
 
-  const atlasBalance = (await context.connection.getTokenAccountBalance(atlasAccount)).value;
-  if ((atlasBalance.uiAmount ?? 0) < totalPrice) {
-    throw new Error(`Insufficent ATLAS, needed ${totalPrice} but only have ${atlasBalance.uiAmount}`);
+  const atlasBalance = await getAtlasTokensBalance(context, atlasAccount);
+  if (atlasBalance < totalPrice) {
+    throw new Error(`Insufficent ATLAS, needed ${totalPrice} but only have ${atlasBalance}`);
   }
 
   const tx =
@@ -258,6 +276,21 @@ async function runRefueler(context: Context, options: RefuelerOptions) {
   }
 
   const gm = new GmClientService();
+
+  const atlasNeeded = (await Promise.all([
+    quoteFromMarketplace(context, gm, fuelMeta, fuelNeeded + 1),
+    quoteFromMarketplace(context, gm, foodMeta, foodNeeded + 1),
+    quoteFromMarketplace(context, gm, armsMeta, armsNeeded + 1),
+    quoteFromMarketplace(context, gm, toolkitMeta, toolkitsNeeded + 1),
+  ])).reduce((acc, quote) => acc + (quote !== undefined ? quote.totalPrice : 0), 0);
+
+  while (await getAtlasTokensBalance(context, atlasAccount) < atlasNeeded) {
+    // claim
+  }
+  const atlasBalance = await getAtlasTokensBalance(context, atlasAccount);
+  if (atlasBalance < atlasNeeded) {
+    throw new Error(`Insufficent ATLAS, needed ${atlasNeeded} but only have ${atlasBalance}`);
+  }
 
   if (fuelNeeded > 0)
     fuelNeeded = fuelNeeded - await buyFromMarketplace(context, gm, fuelMeta, fuelNeeded + 1, atlasAccount);
