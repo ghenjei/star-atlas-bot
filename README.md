@@ -5,6 +5,7 @@ Various bots for interacting with [Star Atlas](https://staratlas.com/). Currentl
 ## What Does It Do?
  - Monitor all your staked SCORE fleets, re-supplying them with R4 as needed
  - Purchase needed R4 from the Marketplace if your account does not have enough to properly re-supply
+ - Claim any pending ATLAS rewards if your account does not have enough to purchase the R4
 
 ## How to Use It
 First, rename `.env.sample` to `.env` and fill in the `SECRET_KEY` and `RPC_URL` parameters. `SECRET_KEY` should be the Base58 encoded private key of your account (this is what Phantom gives you as your secret key). `RPC_URL` is a Solana RPC URL.

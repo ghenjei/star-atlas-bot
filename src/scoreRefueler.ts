@@ -1,6 +1,7 @@
 import { Metaplex, Sft } from "@metaplex-foundation/js";
 import { PublicKey, Transaction } from "@solana/web3.js";
 import {
+  createHarvestInstruction,
   createRearmInstruction, createRefeedInstruction, createRefuelInstruction, createRepairInstruction,
   getAllFleetsForUserPublicKey, getAssociatedTokenAddress, getScoreVarsInfo, getScoreVarsShipInfo,
   GmClientService, OrderSide, ScoreVarsShipInfo, ShipStakingInfo
@@ -78,6 +79,10 @@ class ResourceCounter {
     this.fuel = new ConsumableData();
     this.food = new ConsumableData();
     this.arms = new ConsumableData();
+  }
+
+  getShipName(shipMint: PublicKey) {
+    return this.shipInfos.get(shipMint)?.metadata.name ?? "UNKNOWN";
   }
 
   updateFleetLowestPercent(fleetIndex: number, percent: number) {
@@ -284,8 +289,20 @@ async function runRefueler(context: Context, options: RefuelerOptions) {
     quoteFromMarketplace(context, gm, toolkitMeta, toolkitsNeeded + 1),
   ])).reduce((acc, quote) => acc + (quote !== undefined ? quote.totalPrice : 0), 0);
 
-  while (await getAtlasTokensBalance(context, atlasAccount) < atlasNeeded) {
-    // claim
+  for (let i = 0; i < fleets.length ; ++i) {
+    const atlasBalance = await getAtlasTokensBalance(context, atlasAccount);
+    if (atlasBalance < atlasNeeded) {
+      console.log("Harvesting ATLAS from ", counter.getShipName(fleets[i].shipMint));
+      const tx = new Transaction();
+      const factoryReturn = await createHarvestInstruction(context.connection, context.keypair.publicKey, ATLAS_MINT, fleets[i].shipMint, SCORE_PROGRAM);
+      // assumes atlas account already exists
+      tx.add(factoryReturn.instructions[factoryReturn.instructions.length - 1]);
+      const hash = await context.connection.sendTransaction(tx, [context.keypair]);
+      await context.connection.confirmTransaction(hash);
+      console.log(hash);
+    } else {
+      break;
+    }
   }
   const atlasBalance = await getAtlasTokensBalance(context, atlasAccount);
   if (atlasBalance < atlasNeeded) {
@@ -316,7 +333,7 @@ async function runRefueler(context: Context, options: RefuelerOptions) {
     if (fleetToolkitsNeeded > 0)
       tx.add(await topOffInstruction(context, toolkitMeta, fleetToolkitsNeeded, toolkitAccount, fleets[i].shipMint, createRepairInstruction));
     if (tx.instructions.length > 0) {
-      console.log("Topping off ", counter.shipInfos.get(fleets[i].shipMint)?.metadata.name ?? "UNKNOWN", " for ",
+      console.log("Topping off ", counter.getShipName(fleets[i].shipMint), " for ",
         "Fuel: ", fleetFuelNeeded, " Food: ", fleetFoodNeeded, " Arms: ", fleetArmsNeeded, " Toolkits: ", fleetToolkitsNeeded);
       const hash = await context.connection.sendTransaction(tx, [context.keypair]);
       await context.connection.confirmTransaction(hash);
