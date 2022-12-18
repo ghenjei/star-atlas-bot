@@ -1,5 +1,5 @@
 import { Metaplex, Sft } from "@metaplex-foundation/js";
-import { PublicKey, Transaction } from "@solana/web3.js";
+import { PublicKey, Transaction, TransactionInstruction, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
 import {
   createHarvestInstruction,
   createRearmInstruction, createRefeedInstruction, createRefuelInstruction, createRepairInstruction,
@@ -289,16 +289,27 @@ async function runRefueler(context: Context, options: RefuelerOptions) {
     quoteFromMarketplace(context, gm, toolkitMeta, toolkitsNeeded + 1),
   ])).reduce((acc, quote) => acc + (quote !== undefined ? quote.totalPrice : 0), 0);
 
-  for (let i = 0; i < fleets.length ; ++i) {
+  for (let i = 0; i < fleets.length; ++i) {
     const atlasBalance = await getAtlasTokensBalance(context, atlasAccount);
     if (atlasBalance < atlasNeeded) {
       console.log("Harvesting ATLAS from ", counter.getShipName(fleets[i].shipMint));
-      const tx = new Transaction();
       const factoryReturn = await createHarvestInstruction(context.connection, context.keypair.publicKey, ATLAS_MINT, fleets[i].shipMint, SCORE_PROGRAM);
       // assumes atlas account already exists
-      tx.add(factoryReturn.instructions[factoryReturn.instructions.length - 1]);
-      const hash = await context.connection.sendTransaction(tx, [context.keypair]);
-      await context.connection.confirmTransaction(hash);
+      const instructions = [factoryReturn.instructions[factoryReturn.instructions.length - 1]];
+      const latestBlockhash = await context.connection.getLatestBlockhash('finalized');
+      const message = new TransactionMessage({
+        payerKey: context.keypair.publicKey,
+        recentBlockhash: latestBlockhash.blockhash,
+        instructions
+      }).compileToV0Message();
+      const transaction = new VersionedTransaction(message);
+      transaction.sign([context.keypair]);
+      const hash = await context.connection.sendTransaction(transaction);
+      await context.connection.confirmTransaction({
+        signature: hash,
+        blockhash: latestBlockhash.blockhash,
+        lastValidBlockHeight: latestBlockhash.lastValidBlockHeight
+      });
       console.log(hash);
     } else {
       break;
@@ -319,24 +330,36 @@ async function runRefueler(context: Context, options: RefuelerOptions) {
     toolkitsNeeded = toolkitsNeeded - await buyFromMarketplace(context, gm, toolkitMeta, toolkitsNeeded + 1, atlasAccount);
 
   for (let i = 0; i < fleets.length; ++i) {
-    const tx = new Transaction();
+    const instructions: TransactionInstruction[] = [];
     const fleetFuelNeeded = Math.max(Math.floor(counter.fuel.neededByFleet.get(i) ?? 0) - 1, 0);
     if (fleetFuelNeeded > 0)
-      tx.add(await topOffInstruction(context, fuelMeta, fleetFuelNeeded, fuelAccount, fleets[i].shipMint, createRefuelInstruction));
+      instructions.push(await topOffInstruction(context, fuelMeta, fleetFuelNeeded, fuelAccount, fleets[i].shipMint, createRefuelInstruction));
     const fleetFoodNeeded = Math.max(Math.floor(counter.food.neededByFleet.get(i) ?? 0) - 1, 0);
     if (fleetFoodNeeded > 0)
-      tx.add(await topOffInstruction(context, foodMeta, fleetFoodNeeded, foodAccount, fleets[i].shipMint, createRefeedInstruction));
+      instructions.push(await topOffInstruction(context, foodMeta, fleetFoodNeeded, foodAccount, fleets[i].shipMint, createRefeedInstruction));
     const fleetArmsNeeded = Math.max(Math.floor(counter.arms.neededByFleet.get(i) ?? 0) - 1, 0);
     if (fleetArmsNeeded > 0)
-      tx.add(await topOffInstruction(context, armsMeta, fleetArmsNeeded, armsAccount, fleets[i].shipMint, createRearmInstruction));
+      instructions.push(await topOffInstruction(context, armsMeta, fleetArmsNeeded, armsAccount, fleets[i].shipMint, createRearmInstruction));
     const fleetToolkitsNeeded = Math.max(Math.floor(counter.toolkits.neededByFleet.get(i) ?? 0) - 1, 0);
     if (fleetToolkitsNeeded > 0)
-      tx.add(await topOffInstruction(context, toolkitMeta, fleetToolkitsNeeded, toolkitAccount, fleets[i].shipMint, createRepairInstruction));
-    if (tx.instructions.length > 0) {
+      instructions.push(await topOffInstruction(context, toolkitMeta, fleetToolkitsNeeded, toolkitAccount, fleets[i].shipMint, createRepairInstruction));
+    if (instructions.length > 0) {
       console.log("Topping off ", counter.getShipName(fleets[i].shipMint), " for ",
         "Fuel: ", fleetFuelNeeded, " Food: ", fleetFoodNeeded, " Arms: ", fleetArmsNeeded, " Toolkits: ", fleetToolkitsNeeded);
-      const hash = await context.connection.sendTransaction(tx, [context.keypair]);
-      await context.connection.confirmTransaction(hash);
+      const latestBlockhash = await context.connection.getLatestBlockhash('finalized');
+      const message = new TransactionMessage({
+        payerKey: context.keypair.publicKey,
+        recentBlockhash: latestBlockhash.blockhash,
+        instructions
+      }).compileToV0Message();
+      const transaction = new VersionedTransaction(message);
+      transaction.sign([context.keypair]);
+      const hash = await context.connection.sendTransaction(transaction);
+      await context.connection.confirmTransaction({
+        signature: hash,
+        blockhash: latestBlockhash.blockhash,
+        lastValidBlockHeight: latestBlockhash.lastValidBlockHeight
+      }, 'finalized');
       console.log(hash);
     }
   }
