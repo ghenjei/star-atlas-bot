@@ -266,7 +266,7 @@ async function runRefueler(context: Context, options: RefuelerOptions) {
   let fuelNeeded = Math.max(Math.floor(counter.fuel.totalNeeded - (fuel.uiAmount ?? 0)), 0);
   let foodNeeded = Math.max(Math.floor(counter.food.totalNeeded - (food.uiAmount ?? 0)), 0);
   let armsNeeded = Math.max(Math.floor(counter.arms.totalNeeded - (arms.uiAmount ?? 0)), 0);
-  let toolkitsNeeded = Math.max(Math.floor(counter.arms.totalNeeded - (toolkits.uiAmount ?? 0)), 0);
+  let toolkitsNeeded = Math.max(Math.floor(counter.toolkits.totalNeeded - (toolkits.uiAmount ?? 0)), 0);
 
   console.log("Fuel needed: ", fuelNeeded, " Food needed: ", foodNeeded, "Arms needed: ", armsNeeded, "Toolkits needed: ", toolkitsNeeded);
 
@@ -359,7 +359,7 @@ async function runRefueler(context: Context, options: RefuelerOptions) {
         signature: hash,
         blockhash: latestBlockhash.blockhash,
         lastValidBlockHeight: latestBlockhash.lastValidBlockHeight
-      }, 'finalized');
+      });
       console.log(hash);
     }
   }
